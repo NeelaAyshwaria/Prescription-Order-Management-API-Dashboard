@@ -1,0 +1,95 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>Inventory Realtime Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/stompjs@2.3.3/lib/stomp.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    table { border-collapse: collapse; width: 60%; }
+    th, td { border: 1px solid #ddd; padding: 8px; }
+    th { background: #f4f4f4; }
+  </style>
+</head>
+<body>
+  <h2>Inventory Dashboard (Realtime)</h2>
+  <div>
+    <form id="createForm">
+      <input id="name" placeholder="Item name" required>
+      <input id="qty" type="number" placeholder="Quantity" required>
+      <button>Create</button>
+    </form>
+  </div>
+  <br/>
+  <table id="inventoryTable">
+    <thead><tr><th>ID</th><th>Name</th><th>Quantity</th><th>Action</th></tr></thead>
+    <tbody></tbody>
+  </table>
+
+  <script>
+    let stompClient = null;
+
+    function connect() {
+      const socket = new SockJS('/ws');
+      stompClient = Stomp.over(socket);
+      stompClient.connect({}, function(frame) {
+        console.log('Connected: ' + frame);
+        stompClient.subscribe('/topic/inventory', function(message) {
+          console.log('Message arrived', message.body);
+          const data = JSON.parse(message.body);
+          // data may be {action, item}
+          let payload = data;
+          if (data.item) payload = data.item;
+          upsertRow(payload);
+        });
+      });
+    }
+
+    function fetchInventory() {
+      fetch('/api/inventory').then(r=>r.json()).then(items => {
+        const tbody = document.querySelector('#inventoryTable tbody');
+        tbody.innerHTML = '';
+        items.forEach(it => upsertRow(it));
+      });
+    }
+
+    function upsertRow(item) {
+      const tbody = document.querySelector('#inventoryTable tbody');
+      let row = document.getElementById('row-' + item.id);
+      if (!row) {
+        row = document.createElement('tr');
+        row.id = 'row-' + item.id;
+        row.innerHTML = `<td>${item.id}</td><td>${item.name}</td><td class="qty">${item.quantity}</td>
+          <td><button onclick="update(${item.id})">Set Qty</button></td>`;
+        tbody.appendChild(row);
+      } else {
+        row.querySelector('.qty').innerText = item.quantity;
+      }
+    }
+
+    function update(id) {
+      const newQty = prompt('Enter new quantity:');
+      if (newQty === null) return;
+      fetch('/api/inventory/' + id + '?qty=' + newQty, { method: 'PUT' })
+        .then(r=>r.json()).then(()=>{});
+    }
+
+    document.getElementById('createForm').addEventListener('submit', function(e){
+      e.preventDefault();
+      const name = document.getElementById('name').value;
+      const qty = document.getElementById('qty').value;
+      fetch('/api/inventory', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({name:name, quantity: parseInt(qty)})
+      }).then(r=>r.json()).then(()=> {
+        document.getElementById('name').value=''; document.getElementById('qty').value='';
+      });
+    });
+
+    connect();
+    fetchInventory();
+  </script>
+</body>
+</html>
